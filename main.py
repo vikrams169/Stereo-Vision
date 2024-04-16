@@ -98,22 +98,85 @@ def calculate_essential_matrix(fundamental_matrix,K1,K2):
     essential_matrix = np.dot(K1.T,np.dot(fundamental_matrix,K2))
     return essential_matrix
 
-def disparity_map(img1_rect,img2_rect,Q,baseline=678.37,f=1746.24):
-    imgL = cv2.cvtColor(img1_rect,cv2.COLOR_BGR2GRAY)
-    imgR = cv2.cvtColor(img2_rect,cv2.COLOR_BGR2GRAY)
-    stereo_function = cv2.StereoBM.create(numDisparities=64,blockSize=15)
+def disparity_map(img1_rect,img2_rect,Q,baseline=221.76,f=1742.11):
+    #imgL = cv2.cvtColor(img1_rect,cv2.COLOR_BGR2GRAY)
+    #plt.imshow(imgL,cmap='gray')
+    #plt.show()
+    #imgR = cv2.cvtColor(img2_rect,cv2.COLOR_BGR2GRAY)
+    img1_rectified_reshaped = cv2.resize(img1_rect, (int(img1_rect.shape[1] / 4), int(img1_rect.shape[0] / 4)))
+    img2_rectified_reshaped = cv2.resize(img2_rect, (int(img2_rect.shape[1] / 4), int(img2_rect.shape[0] / 4)))
+    img1_rectified_reshaped = cv2.cvtColor(img1_rectified_reshaped, cv2.COLOR_BGR2GRAY)
+    img2_rectified_reshaped = cv2.cvtColor(img2_rectified_reshaped, cv2.COLOR_BGR2GRAY)
+    '''stereo_function = cv2.StereoBM.create(numDisparities=16,blockSize=15)
     disparity = stereo_function.compute(imgL,imgR)
+    disparity_min = disparity.min()
+    disparity_max = disparity.max()
+    disparity = (((disparity-disparity_min)/(disparity_max-disparity_min))*255).astype(np.int32)
     plt.imshow(disparity,cmap='gray')
     plt.show()
-    '''depth = cv2.reprojectImageTo3D(disparity,Q)[:,:,2]
+    depth = cv2.reprojectImageTo3D(disparity,Q)[:,:,2]
     depth = (depth-depth.min()/depth.max()-depth.min())*255
     depth = depth.astype(np.int32)
-    print(depth.shape)'''
+    print(depth.shape)
     depth = np.zeros((disparity.shape))
     for i in range(depth.shape[0]):
         for j in range(depth.shape[1]):
-            depth[i,j] = (baseline*f)/disparity[i,j]
-    plt.imshow(depth,cmap='hot')
+            depth[i,j] = (baseline*f)/disparity[i,j]'''
+    window = 11
+
+    left_array, right_array = img1_rectified_reshaped, img2_rectified_reshaped
+    left_array = left_array.astype(np.int32)
+    right_array = right_array.astype(np.int32)
+    if left_array.shape != right_array.shape:
+        raise "Left-Right image shape mismatch!"
+    h, w = left_array.shape
+    disparity_map = np.zeros((h, w))
+
+    x_new = w - (2 * window)
+    for y in range(window, h-window):
+        block_left_array = []
+        block_right_array = []
+        for x in range(window, w-window):
+            block_left = left_array[y:y + window,
+                                    x:x + window]
+            block_left_array.append(block_left.flatten())
+
+            block_right = right_array[y:y + window,
+                                    x:x + window]
+            block_right_array.append(block_right.flatten())
+
+        block_left_array = np.array(block_left_array)
+        block_left_array = np.repeat(block_left_array[:, :, np.newaxis], x_new, axis=2)
+
+        block_right_array = np.array(block_right_array)
+        block_right_array = np.repeat(block_right_array[:, :, np.newaxis], x_new, axis=2)
+        block_right_array = block_right_array.T
+
+        abs_diff = np.abs(block_left_array - block_right_array)
+        sum_abs_diff = np.sum(abs_diff, axis = 1)
+        idx = np.argmin(sum_abs_diff, axis = 0)
+        disparity = np.abs(idx - np.linspace(0, x_new, x_new, dtype=int)).reshape(1, x_new)
+        disparity_map[y, 0:x_new] = disparity 
+
+
+
+
+    disparity_map_int = np.uint8(disparity_map * 255 / np.max(disparity_map))
+    plt.imshow(disparity_map_int, cmap='hot', interpolation='nearest')
+    plt.show()
+    #plt.savefig('../Results/disparity_image_heat' +str(dataset_number)+ ".png")
+    plt.imshow(disparity_map_int, cmap='gray', interpolation='nearest')
+    plt.show()
+    #plt.savefig('../Results/disparity_image_gray' +str(dataset_number)+ ".png")
+
+    depth = (baseline * f) / (disparity_map + 1e-10)
+    depth[depth > 100000] = 100000
+
+    depth_map = np.uint8(depth * 255 / np.max(depth))
+    plt.imshow(depth_map, cmap='hot', interpolation='nearest')
+    plt.show()
+    #plt.savefig('../Results/depth_image' +str(dataset_number)+ ".png")
+    plt.imshow(depth_map, cmap='gray', interpolation='nearest')
     plt.show()
 
 def compute_matrices(img1,img2,good_matches,kp1,kp2,K1,K2):
@@ -134,10 +197,10 @@ def compute_matrices(img1,img2,good_matches,kp1,kp2,K1,K2):
     mapx2, mapy2 = cv2.initUndistortRectifyMap(K2, d2, R2, K2, [img1.shape[1],img1.shape[0]], cv2.CV_32F)
     img_rect1 = cv2.remap(img1, mapx1, mapy1, cv2.INTER_LINEAR)
     img_rect2 = cv2.remap(img2, mapx2, mapy2, cv2.INTER_LINEAR)
-    #print(img_rect1.shape)
-    #print(img_rect2.shape)
-    img_concat = np.concatenate([copy.deepcopy(img_rect1),copy.deepcopy(img_rect2)],axis=1)
-    img_concat =cv2.cvtColor(img_concat,cv2.COLOR_BGR2RGB)
+    print(img_rect1.shape)
+    print(img_rect2.shape)
+    img_concat = np.concatenate([copy.deepcopy(img_rect2),copy.deepcopy(img_rect1)],axis=1)
+    img_concat = cv2.cvtColor(img_concat,cv2.COLOR_BGR2RGB)
     plt.imshow(img_concat)
     plt.show()
     disparity_map(img_rect1,img_rect2,Q)
@@ -169,10 +232,12 @@ def fundamental_and_essential_matrix_wrapper(img1,img2,K1,K2):
     return best_fundamental_matrix, best_essential_matrix, R, T#, copy.deepcopy(kp_img1), copy.deepcopy(kp_img2), copy.deepcopy(draw_match12_flann), copy.deepcopy(draw_match12_ransac)
 
 def main():
-    img1 = cv2.imread("data/classroom/im0.png")
-    img2 = cv2.imread("data/classroom/im1.png")
-    K1 = np.array([[1746.24,0,14.88],[0,1746.24,534.11],[0,0,1]])
-    K2 = np.array([[1746.24,0,14.88],[0,1746.24,534.11],[0,0,1]])
+    img1 = cv2.imread("data/storageroom/im1.png")
+    img2 = cv2.imread("data/storageroom/im0.png")
+    #K1 = np.array([[1746.24,0,14.88],[0,1746.24,534.11],[0,0,1]])
+    #K2 = np.array([[1746.24,0,14.88],[0,1746.24,534.11],[0,0,1]])
+    K1 = np.array([[1742.11,0,804.90],[0,1742.11,541.22],[0,0,1]])
+    K2 = np.array([[1742.11,0,804.90],[0,1742.11,541.22],[0,0,1]])
     baseline = 678.37
     F, E, R, T = fundamental_and_essential_matrix_wrapper(img1,img2,K1,K2)
     print("Fundamental Matrix: ")
