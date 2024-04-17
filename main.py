@@ -46,11 +46,9 @@ def drawlines(img1, img2, lines, pts1, pts2):
                           (int(pt2[0,0]),int(pt2[0,1])), 5, color, -1) 
     return img1, img2 
 
-def draw_epipolar_lines(rgb_img1,rgb_img2,good_matches,kp1,kp2):
+def draw_epipolar_lines(rgb_img1,rgb_img2,left_points,right_points):
     img1 = copy.deepcopy(cv2.cvtColor(rgb_img1, cv2.COLOR_BGR2GRAY))
-    img2 = copy.deepcopy(cv2.cvtColor(rgb_img2, cv2.COLOR_BGR2GRAY))
-    left_points = np.array([kp1[matches.queryIdx].pt for matches in good_matches]).reshape(-1,1,2).astype(np.float32)
-    right_points = np.array([kp2[matches.trainIdx].pt for matches in good_matches]).reshape(-1,1,2).astype(np.float32)
+    img2 = copy.deepcopy(cv2.cvtColor(rgb_img2, cv2.COLOR_BGR2GRAY))    
     F, mask = cv2.findFundamentalMat(left_points, 
                                  right_points, 
                                  cv2.FM_RANSAC,0.1,0.99)
@@ -80,60 +78,6 @@ def draw_epipolar_lines(rgb_img1,rgb_img2,good_matches,kp1,kp2):
     plt.subplot(122), plt.imshow(img3) 
     plt.show()
 
-def getX(line, y):
-    x = -(line[1]*y + line[2])/line[0]
-    return x
-
-def getEpipolarLines(set1, set2, F, image0, image1, rectified = False):
-    # set1, set2 = matched_pairs_inliers[:,0:2], matched_pairs_inliers[:,2:4]
-    lines1, lines2 = [], []
-    img_epi1 = image0.copy()
-    img_epi2 = image1.copy()
-
-    for i in range(set1.shape[0]):
-        x1 = np.array([set1[i,0], set1[i,1], 1]).reshape(3,1)
-        x2 = np.array([set2[i,0], set2[i,1], 1]).reshape(3,1)
-
-        line2 = np.dot(F, x1)
-        lines2.append(line2)
-
-        line1 = np.dot(F.T, x2)
-        lines1.append(line1)
-    
-        if not rectified:
-            y2_min = 0
-            y2_max = image1.shape[0]
-            x2_min = getX(line2, y2_min)
-            x2_max = getX(line2, y2_max)
-
-            y1_min = 0
-            y1_max = image0.shape[0]
-            x1_min = getX(line1, y1_min)
-            x1_max = getX(line1, y1_max)
-        else:
-            x2_min = 0
-            x2_max = image1.shape[1] - 1
-            y2_min = -line2[2]/line2[1]
-            y2_max = -line2[2]/line2[1]
-
-            x1_min = 0
-            x1_max = image0.shape[1] -1
-            y1_min = -line1[2]/line1[1]
-            y1_max = -line1[2]/line1[1]
-
-
-
-        cv2.circle(img_epi2, (int(set2[i,0]),int(set2[i,1])), 10, (0,0,255), -1)
-        img_epi2 = cv2.line(img_epi2, (int(x2_min), int(y2_min)), (int(x2_max), int(y2_max)), (255, 0, int(i*2.55)), 2)
-    
-
-        cv2.circle(img_epi1, (int(set1[i,0]),int(set1[i,1])), 10, (0,0,255), -1)
-        img_epi1 = cv2.line(img_epi1, (int(x1_min), int(y1_min)), (int(x1_max), int(y1_max)), (255, 0, int(i*2.55)), 2)
-
-    plt.subplot(121), plt.imshow(img_epi1) 
-    plt.subplot(122), plt.imshow(img_epi2) 
-    plt.show() 
-
 def unrectified_image_association(good_matches,kp1,kp2,K1,K2):
     img1_points = np.array([kp1[matches.queryIdx].pt for matches in good_matches]).reshape(-1,1,2).astype(np.float32)
     img2_points = np.array([kp2[matches.trainIdx].pt for matches in good_matches]).reshape(-1,1,2).astype(np.float32)
@@ -144,97 +88,131 @@ def unrectified_image_association(good_matches,kp1,kp2,K1,K2):
     W = np.array([0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]).reshape(3, 3)
     R = np.dot(U,np.dot(W,V))
     T = U[:,2]
-    print("The Fundamental Matrix is computed to be: ")
+    print("The Fundamental Matrix pre-rectification is: ")
     print(fundamental_matrix)
-    print("The Essential Matrix is computed to be: ")
+    print("The Essential Matrix pre-rectification is: ")
     print(essential_matrix)
-    print("The Rotation Matrix computed from the Essential Matrix is: ")
+    print("The Rotation Matrix computed from the Essential Matrix pre-rectification is: ")
     print(R)
-    print("The Translation Vector computed from the essential Matrix is: ")
+    print("The Translation Vector computed from the essential Matrix pre-rectification is: ")
     print(T)
     return fundamental_matrix, essential_matrix, R, T
 
-def rectify_stereo_pair(img1,img2,R,T,K1,d1,K2,d2):
-    H1, H2, P1, P2, Q, roi_1, roi_2 = cv2.stereoRectify(K1,d1,K2,d2,[img1.shape[1],img1.shape[0]],R,T,alpha=1.0)
-    print("The homography/rotation matrix (H1) for rectifying the first/left image: ")
-    print(H1)
-    print("The homography/rotation matrix (H2) for rectifying the second/right image: ")
-    print(H2)
-    map_x_img1, map_y_img1 = cv2.initUndistortRectifyMap(K1,d1,H1,K1,[img1.shape[1],img1.shape[0]],cv2.CV_32F)
-    map_x_img2, map_y_img2 = cv2.initUndistortRectifyMap(K2,d2,H2,K2,[img2.shape[1],img2.shape[0]],cv2.CV_32F)
-    img1_rect = cv2.remap(img1,map_x_img1,map_y_img1,cv2.INTER_LINEAR)
-    img2_rect = cv2.remap(img2,map_x_img2,map_y_img2,cv2.INTER_LINEAR)
-    # Use cv2.INTER_CUBIC above instead
+# Rectifying the stereo-image pair
+def rectify_stereo_pair(img1,img2,fundamental_matrix,left_img_points,right_img_points):
+    # Ontaining the dimensions of both images
+    h1, w1 = img1.shape[:2]
+    h2, w2 = img2.shape[:2]
+    # Getting the homographies needed to be applied on each image to rectify them
+    # Can use cv2.stereoRectify as well, but using cv2.stereoRectifyUncalibrated to directly get the homography transformations as an output
+    _, H1, H2 = cv2.stereoRectifyUncalibrated(left_img_points,right_img_points,fundamental_matrix,imgSize=[w1,h1])
+    # Calculating the new fundamental matrix post-rectification
+    F_new = np.dot(np.linalg.inv(H2),np.dot(fundamental_matrix,np.linalg.inv(H1)))
+    # Rectifying the the image pair by warping using the homography transformation
+    img1_rect = cv2.warpPerspective(copy.deepcopy(img1),H1,[w1,h1])
+    img2_rect = cv2.warpPerspective(copy.deepcopy(img2),H2,[w2,h2])
     img_concat = np.concatenate([copy.deepcopy(img1_rect),copy.deepcopy(img2_rect)],axis=1)
-    img_concat = cv2.cvtColor(img_concat,cv2.COLOR_BGR2RGB)
+    print("The homography matrix (H1) for rectifying the first/left image: ")
+    print(H1)
+    print("The homography matrix (H2) for rectifying the second/right image: ")
+    print(H2)
+    print("The new Fundamental_matrix post-rectification is: ")
+    print(F_new)
+    img_concat = cv2.cvtColor(copy.deepcopy(img_concat),cv2.COLOR_BGR2RGB)
     plt.imshow(img_concat)
     plt.show()
-    return img1_rect, img2_rect
+    return img1_rect, img2_rect, H1, H2
 
+# Generating a disparity map from the rectified image pair using the block-matching algorithm
 def generate_disparity_map(img1_rect,img2_rect,window_size=11):
-    imgL = cv2.resize(copy.deepcopy(img1_rect),(int(img1_rect.shape[1]/4), int(img1_rect.shape[0]/4)))
+    # Downsampling and grayscaling the images for block-matching to enable faster execution
+    imgL = cv2.resize(copy.deepcopy(img1_rect),(int(img1_rect.shape[1]/4),int(img1_rect.shape[0]/4)))
     imgL = cv2.cvtColor(imgL,cv2.COLOR_BGR2GRAY).astype(np.int32)
-    imgR = cv2.resize(copy.deepcopy(img2_rect),(int(img2_rect.shape[1]/4), int(img2_rect.shape[0]/4)))
+    imgR = cv2.resize(copy.deepcopy(img2_rect),(int(img2_rect.shape[1]/4),int(img2_rect.shape[0]/4)))
     imgR = cv2.cvtColor(imgR,cv2.COLOR_BGR2GRAY).astype(np.int32)
+    # Initialzing the block-matching algorithm parameters
     h, w = imgL.shape
     disparity_map = np.zeros((h,w))
     disp_block_width = w - 2*window_size
     print("Generating the Disparity Map. This may take a couple seconds.")
+    # Looping through window locations across the height of the left image
     for i in range(window_size,h-window_size):
         imgL_blocks = []
         imgR_blocks = []
+        # Looping through the window locations across the width of the left image
         for j in range(window_size,w-window_size):
             left_img_block = imgL[i:i+window_size,j:j+window_size]
             right_img_block = imgR[i:i+window_size,j:j+window_size]
             imgL_blocks.append(left_img_block.flatten())
             imgR_blocks.append(right_img_block.flatten())
+        # Generating and adding the block corresponding to the current window location
         imgL_blocks = np.array(imgL_blocks)
         imgR_blocks = np.array(imgR_blocks)
         imgL_blocks = np.repeat(imgL_blocks[:,:,np.newaxis],disp_block_width,axis=2)
         imgR_blocks = np.repeat(imgR_blocks[:,:,np.newaxis],disp_block_width,axis=2).T
+        # Using the sum of absolute differences (SAD) method to find the best matching block in the right image with the left image
         blocks_diff = np.sum(np.abs(imgL_blocks-imgR_blocks),axis=1)
         ideal_idx = np.argmin(blocks_diff,axis=0)
         disparity_block = np.abs(ideal_idx - np.linspace(0,disp_block_width,disp_block_width,dtype=int)).reshape(1,disp_block_width)
+        # Using the best matching block to get the disparity values for that row across the height dimension
         disparity_map[i,0:disp_block_width] = disparity_block 
-    disparity_map = ((disparity_map/disparity_map.max())*255).astype(np.int32)
-    #disparity_map = np.uint8(disparity_map * 255 / np.max(disparity_map))
+    # Scaling the disparity map to 8-bit [0-255] pixel values
+    disparity_map = ((disparity_map*255/disparity_map.max())).astype(np.int32)
+    # Displaying the disparity map is a heat-map
     print("The Disparity Map using a Heatmap Visualization: ")
     plt.imshow(disparity_map,cmap='hot',interpolation='nearest')
     plt.show()
+    # Displaying the disparity map is a grayscale image
     print("The Disparity Map using a Grayscale Visualization: ")
     plt.imshow(disparity_map,cmap='gray',interpolation='nearest')
     plt.show()
     return disparity_map
 
+# Generating a depth map of the scene using the disparity map
 def generate_depth_map(disparity_map,baseline,focal_length):
+    # Using the formula depth = (focal_length*baseline)/disparity for eacxh pixel of the disparity map
     depth_map = (baseline*focal_length)/(disparity_map+np.exp(-10))
+    # Thresholding and scaling the depth map to 8-bit [0-255] pixel values
     depth_map[depth_map>100000] = 100000
-    #depth_map = np.uint8(depth_map * 255 / np.max(depth_map))
-    depth_map = ((depth_map/depth_map.max())*255).astype(np.int32)
+    depth_map = ((depth_map*255/depth_map.max())).astype(np.int32)
+    # Displaying the depth map is a heat-map
     print("The Depth Map using a Heatmap Visualization: ")
     plt.imshow(depth_map,cmap='hot',interpolation='nearest')
     plt.show()
+    # Displaying the depth map as a grayscale image
     print("The Depth Map using a Grayscale Visualization: ")
     plt.imshow(depth_map,cmap='gray',interpolation='nearest')
     plt.show()
     return depth_map
 
-def stereo_vision_wrapper(img1,img2,K1,d1,K2,d2,baseline):
-    # The line below is valid only when K1 == K2 and fx == fy
-    focal_length = K1[0,0]
+# A wrapper function to sequentially detect features, compute matrices, rectify the stereo pair, and compute disparity and depth maps
+def stereo_vision_wrapper(img1,img2,K1,K2,baseline):
+    # Making deepcopies of the 
     rgb_img1 = copy.deepcopy(img1)
     rgb_img2 = copy.deepcopy(img2)
+    # Ectracting the Focal Length of the camera from the camera intrinsic matrix.The line below is valid only when K1 == K2 and fx == fy
+    focal_length = K1[0,0]
+    # Detecting SIFT Featutre Keypoints and matching them using a FLANN Matcher
     kp1, features1 = detect_sift_features(copy.deepcopy(rgb_img1))
     kp2, features2 = detect_sift_features(copy.deepcopy(rgb_img2))
     good_matches = FLANN_match_features(features1,features2)
+    # Extracting just the SIFT feature keypoint locations in each image
+    left_img_points = np.array([kp1[matches.queryIdx].pt for matches in good_matches]).reshape(-1,1,2).astype(np.float32)
+    right_img_points = np.array([kp2[matches.trainIdx].pt for matches in good_matches]).reshape(-1,1,2).astype(np.float32)
+    # Obtaining the Fundamental and Essential Matrix along with the Rotation and Translation transform for the unrectified image pair
     F, E, R, T = unrectified_image_association(good_matches,kp1,kp2,K1,K2)
-    draw_epipolar_lines(img1,img2,good_matches,kp1,kp2)
-    img1_rect, img2_rect = rectify_stereo_pair(rgb_img1,rgb_img2,R,T,K1,d1,K2,d2)
-    kp1, features1 = detect_sift_features(copy.deepcopy(img1_rect))
-    kp2, features2 = detect_sift_features(copy.deepcopy(img2_rect))
-    good_matches = FLANN_match_features(features1,features2)
-    draw_epipolar_lines(img1_rect,img2_rect,good_matches,kp1,kp2)
+    # Drawing the epipolar lines (non-horizontal) for the unrectified image pair
+    draw_epipolar_lines(rgb_img1,rgb_img2,left_img_points,right_img_points)
+    # Rectifying the stereo image pair
+    img1_rect, img2_rect, H1, H2 = rectify_stereo_pair(rgb_img1,rgb_img2,F,left_img_points,right_img_points)
+    # Appropriately transforming the SIFT Feature Keypoint locations post-rectification
+    left_img_points = cv2.perspectiveTransform(left_img_points, H1).reshape(-1,1,2)
+    right_img_points = cv2.perspectiveTransform(right_img_points, H2).reshape(-1,1,2)
+    # Re-drawring the epipolar lines (now horizontal) after rectification
+    draw_epipolar_lines(img1_rect,img2_rect,left_img_points,right_img_points)
+    # Generating a Disparity Map for the rectified stereo-image pair
     disparity_map = generate_disparity_map(img1_rect,img2_rect)
+    # Generating a Depth Map for the rectified stereo-image pair
     depth_map = generate_depth_map(disparity_map,baseline,focal_length)
 
 def main():
@@ -244,10 +222,10 @@ def main():
     #K2 = np.array([[1746.24,0,14.88],[0,1746.24,534.11],[0,0,1]])
     K1 = np.array([[1742.11,0,804.90],[0,1742.11,541.22],[0,0,1]])
     K2 = np.array([[1742.11,0,804.90],[0,1742.11,541.22],[0,0,1]])
-    d1 = np.array([0,0,0,0]).astype(np.float32)
-    d2 = np.array([0,0,0,0]).astype(np.float32)
+    #d1 = np.array([0,0,0,0]).astype(np.float32)
+    #d2 = np.array([0,0,0,0]).astype(np.float32)
     baseline = 221.76
-    stereo_vision_wrapper(img1,img2,K1,d1,K2,d2,baseline)
+    stereo_vision_wrapper(img1,img2,K1,K2,baseline)
 
 if __name__ == "__main__":
     main()
