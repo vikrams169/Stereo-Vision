@@ -63,7 +63,7 @@ def draw_lines_on_img(img1,img2,left_points,right_points,lines):
     return img1, img2 
 
 # Drawing the epipolar lines for a pair images given a set of matched features
-def draw_epipolar_lines(rgb_img1,rgb_img2,left_points,right_points):
+def draw_epipolar_lines(rgb_img1,rgb_img2,left_points,right_points,save_path):
     # Creating deepcopies of each image to prevent unintended annotations
     img1 = copy.deepcopy(cv2.cvtColor(rgb_img1, cv2.COLOR_BGR2GRAY))
     img2 = copy.deepcopy(cv2.cvtColor(rgb_img2, cv2.COLOR_BGR2GRAY))
@@ -78,8 +78,10 @@ def draw_epipolar_lines(rgb_img1,rgb_img2,left_points,right_points):
     # Drawing and displaying the epipolar lines on each image  
     img1_epipolar_lines, _ = draw_lines_on_img(img1,img2,left_points,right_points,lines_left) 
     img2_epipolar_lines, _ = draw_lines_on_img(img1,img2,right_points,left_points,lines_right) 
-    plt.subplot(121), plt.imshow(img1_epipolar_lines) 
-    plt.subplot(122), plt.imshow(img2_epipolar_lines) 
+    img_concat = np.concatenate([copy.deepcopy(img1_epipolar_lines),copy.deepcopy(img2_epipolar_lines)],axis=1)
+    img_concat = cv2.cvtColor(copy.deepcopy(img_concat),cv2.COLOR_BGR2RGB)
+    plt.imshow(img_concat)
+    plt.savefig(save_path + "epipolar_lines.png") 
     plt.show()
 
  # Obtaining the Fundamental and Essential Matrix along with the rotational and translational transformation between the two unrectified images
@@ -109,7 +111,7 @@ def unrectified_image_association(left_img_points,right_img_points,K1,K2):
     return fundamental_matrix, essential_matrix, R, T
 
 # Rectifying the stereo-image pair
-def rectify_stereo_pair(img1,img2,fundamental_matrix,left_img_points,right_img_points):
+def rectify_stereo_pair(img1,img2,fundamental_matrix,left_img_points,right_img_points,save_path):
     # Ontaining the dimensions of both images
     h1, w1 = img1.shape[:2]
     h2, w2 = img2.shape[:2]
@@ -135,11 +137,12 @@ def rectify_stereo_pair(img1,img2,fundamental_matrix,left_img_points,right_img_p
     print(F_new)
     # Displaying the two rectfied images next to eachother (only horizontal translation should be observed)
     plt.imshow(img_concat)
+    plt.savefig(save_path + "rectified_pair.png")
     plt.show()
     return img1_rect, img2_rect, H1, H2
 
 # Generating a disparity map from the rectified image pair using the block-matching algorithm
-def generate_disparity_map(img1_rect,img2_rect,window_size=11):
+def generate_disparity_map(img1_rect,img2_rect,save_path,window_size=7):
     # Downsampling and grayscaling the images for block-matching to enable faster execution
     imgL = cv2.resize(copy.deepcopy(img1_rect),(int(img1_rect.shape[1]/4),int(img1_rect.shape[0]/4)))
     imgL = cv2.cvtColor(imgL,cv2.COLOR_BGR2GRAY).astype(np.int32)
@@ -176,34 +179,36 @@ def generate_disparity_map(img1_rect,img2_rect,window_size=11):
     # Displaying the disparity map is a heat-map
     print("The Disparity Map using a Heatmap Visualization: ")
     plt.imshow(disparity_map,cmap='hot',interpolation='nearest')
+    plt.savefig(save_path + "disparity_heatmap.png")
     plt.show()
     # Displaying the disparity map is a grayscale image
     print("The Disparity Map using a Grayscale Visualization: ")
     plt.imshow(disparity_map,cmap='gray',interpolation='nearest')
+    plt.savefig(save_path + "disparity_grayscale.png")
     plt.show()
     return disparity_map
 
 # Generating a depth map of the scene using the disparity map
-def generate_depth_map(disparity_map,baseline,focal_length):
+def generate_depth_map(disparity_map,baseline,focal_length,save_path):
     # Using the formula depth = (focal_length*baseline)/disparity for eacxh pixel of the disparity map
-    depth_map = (baseline*focal_length)/(disparity_map+np.exp(-7))
+    depth_map = (baseline*focal_length)/(disparity_map+np.exp(-10))
     # Thresholding and scaling the depth map to 8-bit [0-255] pixel values
-    print(depth_map.max())
-    print(depth_map.min())
     depth_map[depth_map>1000000] = 1000000
     depth_map = ((depth_map/depth_map.max())*255).astype(np.int32)
     # Displaying the depth map is a heat-map
     print("The Depth Map using a Heatmap Visualization: ")
     plt.imshow(depth_map,cmap='hot',interpolation='nearest')
+    plt.savefig(save_path + "depth_heatmap.png")
     plt.show()
     # Displaying the depth map as a grayscale image
     print("The Depth Map using a Grayscale Visualization: ")
     plt.imshow(depth_map,cmap='gray',interpolation='nearest')
+    plt.savefig(save_path + "depth_grayscale.png")
     plt.show()
     return depth_map
 
 # A wrapper function to sequentially detect features, compute matrices, rectify the stereo pair, and compute disparity and depth maps
-def stereo_vision_wrapper(img1,img2,K1,K2,baseline):
+def stereo_vision_wrapper(img1,img2,K1,K2,baseline,save_path):
     # Making deepcopies of the 
     rgb_img1 = copy.deepcopy(img1)
     rgb_img2 = copy.deepcopy(img2)
@@ -219,29 +224,32 @@ def stereo_vision_wrapper(img1,img2,K1,K2,baseline):
     # Obtaining the Fundamental and Essential Matrix along with the Rotation and Translation transform for the unrectified image pair
     F, E, R, T = unrectified_image_association(left_img_points,right_img_points,K1,K2)
     # Drawing the epipolar lines (non-horizontal) for the unrectified image pair
-    draw_epipolar_lines(copy.deepcopy(rgb_img1),copy.deepcopy(rgb_img2),left_img_points,right_img_points)
+    draw_epipolar_lines(copy.deepcopy(rgb_img1),copy.deepcopy(rgb_img2),left_img_points,right_img_points,save_path+"unrectified_")
     # Rectifying the stereo image pair
-    img1_rect, img2_rect, H1, H2 = rectify_stereo_pair(rgb_img1,rgb_img2,F,left_img_points,right_img_points)
+    img1_rect, img2_rect, H1, H2 = rectify_stereo_pair(rgb_img1,rgb_img2,F,left_img_points,right_img_points,save_path)
     # Appropriately transforming the SIFT Feature Keypoint locations post-rectification
     left_img_points = cv2.perspectiveTransform(left_img_points,H1).reshape(-1,1,2)
     right_img_points = cv2.perspectiveTransform(right_img_points,H2).reshape(-1,1,2)
     # Re-drawring the epipolar lines (now horizontal) after rectification
-    draw_epipolar_lines(copy.deepcopy(img1_rect),copy.deepcopy(img2_rect),left_img_points,right_img_points)
+    draw_epipolar_lines(copy.deepcopy(img1_rect),copy.deepcopy(img2_rect),left_img_points,right_img_points,save_path+"rectified_")
     # Generating a Disparity Map for the rectified stereo-image pair
-    disparity_map = generate_disparity_map(img1_rect,img2_rect)
+    disparity_map = generate_disparity_map(img1_rect,img2_rect,save_path)
     # Generating a Depth Map for the rectified stereo-image pair
-    depth_map = generate_depth_map(disparity_map,baseline,focal_length)
+    depth_map = generate_depth_map(disparity_map,baseline,focal_length,save_path)
 
 # Performing stereo vision analysis for each image set
 def main():
     global datasets
+    i = 1
     for dataset in datasets:
         img1 = cv2.imread(dataset["img1_path"])
         img2 = cv2.imread(dataset["img2_path"])
         K1 = dataset["K1"]
         K2 = dataset["K2"]
         baseline = dataset["baseline"]
-        stereo_vision_wrapper(img1,img2,K1,K2,baseline)
+        save_path = "results/dataset" + str(i) + "/"
+        stereo_vision_wrapper(img1,img2,K1,K2,baseline,save_path)
+        i += 1
 
 if __name__ == "__main__":
     main()
